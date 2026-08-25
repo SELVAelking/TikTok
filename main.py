@@ -9,6 +9,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from datetime import datetime
 import logging
 import os
+import ssl
+import urllib3
+
+# تعطيل تحذيرات SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================
 # 1. إعدادات البوت
@@ -67,11 +72,24 @@ async def send_subscription_message(update: Update, context: ContextTypes.DEFAUL
     )
 
 # ============================================
-# 4. إعدادات الجلسة
+# 4. إعدادات الجلسة - مع إصلاح SSL
 # ============================================
+# إنشاء جلسة مع إعدادات SSL مخصصة
 session = requests.Session()
+
+# تعطيل التحقق من SSL تماماً
 session.verify = False
-requests.packages.urllib3.disable_warnings()
+
+# إعدادات SSL إضافية
+try:
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+except:
+    pass
+
+# تجاهل تحذيرات SSL
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 base_headers = {
     "applicationVersion": "2",
@@ -91,7 +109,7 @@ base_headers = {
 }
 
 # ============================================
-# 5. دوال الاتصال بخدمة اتصالات
+# 5. دوال الاتصال بخدمة اتصالات - مع إصلاح SSL
 # ============================================
 def login(email, password):
     credentials = f"{email}:{password}"
@@ -114,8 +132,14 @@ def login(email, password):
 
     url = "https://mab.etisalat.com.eg:11003/Saytar/rest/authentication/loginWithPlan"
 
-    response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'))
-    response.raise_for_status()
+    try:
+        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
+        response.raise_for_status()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in login: {e}")
+        # محاولة بدون التحقق من SSL
+        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
+        response.raise_for_status()
     
     root = ET.fromstring(response.text)
     
@@ -169,7 +193,7 @@ def get_chatbot_token(token, jsessionid, dial, short_code):
     url = f"https://mab.etisalat.com.eg:11003/Saytar/rest/apiGateWay/getApiGateWayToken?req={encoded_req}"
 
     try:
-        response = session.get(url, headers=headers)
+        response = session.get(url, headers=headers, timeout=30, verify=False)
         response.raise_for_status()
         
         chatbot_token = None
@@ -189,6 +213,7 @@ def get_chatbot_token(token, jsessionid, dial, short_code):
         return chatbot_token
         
     except Exception as e:
+        print(f"Error getting chatbot token: {e}")
         return "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJWRk80NjBFaXF0Q05YaGt1cXdkRnhYMjdQN1hFRElkN2gyVTdGUy02MmRjIn0.eyJleHAiOjE3OTU0MzM0MTksImlhdCI6MTc4NzY1NzQxOSwianRpIjoiYzk1ZWVhNzYtYjg5Ni00MDI3LWFjZTItZDkxZWNmNjNhMWMzIiwiaXNzIjoiaHR0cDovL2tleWNsb2FrLWV4dGVybmFsLmFwcHMub2NwLmVnMDEuZXRpc2FsYXQubmV0L2F1dGgvcmVhbG1zL2V0aXNhbGF0LWRpZ2l0YWwiLCJzdWIiOiJmOmUzNzZmMmY1LTM4MzUtNDI2ZC04YjdkLTc2MDAzY2I5MzA5ZToxMTA4NTk2NDQxIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibXktZXRpc2FsYXQiLCJzZXNzaW9uX3N0YXRlIjoiMDMzMzE5ZGYtMWFiNi00OWRlLThjMjctZWU2NzFiMWVhM2IzIiwic2NvcGUiOiJwcm9maWxlIiwic2lkIjoiMDMzMzE5ZGYtMWFiNi00OWRlLThjMjctZWU2NzFiMWVhM2IzIiwidXNlckluZm8iOnsiZGlhbHMiOlsiMTEwODU5NjQ0MSJdfSwicHJlZmVycmVkX3VzZXJuYW1lIjoiMTEwODU5NjQ0MSJ9.nQoWq1zilsxynt4HLgG2zUpkcnFXj9dT2mSWf8Gy5Ne7ayY2k7fyNcflimIUQN9p_u_y4HoZGuazMmbe8EIdexPkXUOzFLXdqlRssoyi8RQhau_xcr7AE4CNH_DYa-CtXuki4b43CSJypwnyYIYz2V7wNPrNF1YlAnMrxWeKVakADIp1BfpsxW5619wl0b8ReuDIeVEOEa69hvMU3WA4dab8p94kpZ418KzHVHWVXxOpDutPQYUE0gM5vlod1ljwsDhBhJG96SGEQybfdi2R7ssUZy8cdAOZPJNDOiJqFpIJ63b9hS9i1KTdLDPaVC_6SOtApEeRP3hFhD7t9B3-MQ"
 
 def send_message_to_bot(chatbot_token, dial, content):
@@ -217,9 +242,16 @@ def send_message_to_bot(chatbot_token, dial, content):
         }
     }
     
-    response = session.post(base_url, headers=chat_headers, json=payload)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in send_message: {e}")
+        # محاولة بدون التحقق
+        response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
+        response.raise_for_status()
+        return response.json()
 
 def get_messages(chatbot_token, dial):
     chat_headers = {
@@ -238,9 +270,15 @@ def get_messages(chatbot_token, dial):
         "messageType": "Chat"
     }
     
-    response = session.get(base_url, headers=chat_headers, params=params)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in get_messages: {e}")
+        response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
+        response.raise_for_status()
+        return response.json()
 
 # ============================================
 # 6. دوال التليجرام
@@ -355,18 +393,20 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['email'] = email
         context.user_data['logged_in'] = True
         
-        # تخزين وقت آخر رسالة
         context.user_data['last_message_time'] = datetime.now().isoformat()
         context.user_data['last_bot_reply'] = None
         
-        # تحديث بيانات المستخدم
         user_id = update.effective_user.id
         if user_id in user_data_store:
             user_data_store[user_id]['dial'] = dial
         
         # إرسال اختيار اللغة
-        send_message_to_bot(chatbot_token, dial, "1-العربية")
-        time.sleep(2)
+        try:
+            send_message_to_bot(chatbot_token, dial, "1-العربية")
+            time.sleep(2)
+        except Exception as e:
+            print(f"خطأ في إرسال رسالة الترحيب: {e}")
+            # نستمر حتى لو فشل إرسال رسالة الترحيب
         
         # جلب الردود الأولية
         msgs = get_messages(chatbot_token, dial)
@@ -406,6 +446,19 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return ConversationHandler.END
         
+    except requests.exceptions.SSLError as e:
+        error_msg = "مشكلة في الاتصال بالخادم (SSL). يرجى المحاولة مرة أخرى."
+        await waiting_msg.edit_text(
+            f"❌ *فشل تسجيل الدخول!*\n\n"
+            f"السبب: `{error_msg}`\n\n"
+            "💡 تأكد من:\n"
+            "- صحة البريد الإلكتروني\n"
+            "- صحة كلمة المرور\n"
+            "- وجود اتصال بالإنترنت\n\n"
+            "استخدم /start للمحاولة مرة أخرى.",
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
     except Exception as e:
         error_msg = str(e)
         await waiting_msg.edit_text(
@@ -437,7 +490,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ جلسة نشطة
 📱 رقم الخط: {context.user_data.get('dial', 'غير معروف')}
 📧 البريد: {context.user_data.get('email', 'غير معروف')}
-📨 آخر رد: {context.user_data.get('last_bot_reply', 'لا يوجد')[:50]}...
         """
     else:
         status = "⚠️ *غير مسجل الدخول*\nاستخدم /start لتسجيل الدخول."
@@ -465,7 +517,7 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 *إحصائيات المستخدمين*
 
 👥 *إجمالي المستخدمين:* {total_users}
-✅ *مستخدمين نشطين (سجلوا دخول):* {active_users}
+✅ *مستخدمين نشطين:* {active_users}
 ❌ *غير نشطين:* {total_users - active_users}
 
 📝 *آخر 20 مستخدم:*
@@ -527,46 +579,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chatbot_token = context.user_data['chatbot_token']
         dial = context.user_data['dial']
         
-        # حفظ وقت الإرسال
         send_time = datetime.now()
         
-        # إرسال رسالة المستخدم
         send_message_to_bot(chatbot_token, dial, user_message)
         
-        # انتظار الرد
         time.sleep(4)
         
-        # جلب الردود
         msgs = get_messages(chatbot_token, dial)
         
-        # البحث عن أحدث رد من البوت (بعد وقت الإرسال)
         bot_reply = None
-        latest_time = None
         
         for msg in reversed(msgs):
             if msg.get('sender', {}).get('name') == 'ChatBot':
                 content = msg.get('content', '')
                 if content and content != "XX_SESSION_RESTART_XX":
-                    # التحقق من وقت الرسالة
                     msg_time = msg.get('sendTime', '')
                     if msg_time:
                         try:
-                            # تحويل الوقت إلى datetime
                             msg_dt = datetime.fromisoformat(msg_time.replace('Z', '+00:00'))
-                            # إذا كانت الرسالة بعد وقت الإرسال
                             if msg_dt > send_time:
                                 bot_reply = content.replace('&e', 'اتصالات')
                                 break
                         except:
-                            # إذا فشل التحويل، نأخذ أول رسالة
                             if not bot_reply:
                                 bot_reply = content.replace('&e', 'اتصالات')
                     else:
-                        # إذا مفيش وقت، نأخذ أول رسالة
                         if not bot_reply:
                             bot_reply = content.replace('&e', 'اتصالات')
         
-        # إذا لم نجد رد بعد وقت الإرسال، نأخذ آخر رد موجود
         if not bot_reply:
             for msg in reversed(msgs):
                 if msg.get('sender', {}).get('name') == 'ChatBot':
@@ -576,7 +616,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         break
         
         if bot_reply:
-            # تخزين الرد الأخير
             context.user_data['last_bot_reply'] = bot_reply
             
             if len(bot_reply) > 4000:
@@ -604,49 +643,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================
-# 7. تشغيل البوت - النسخة النهائية
+# 7. تشغيل البوت
 # ============================================
 def main():
     print("🚀 جاري تشغيل البوت...")
     
-    # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # معالج المحادثة
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
             EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_email)],
-            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
-    
-    # إضافة المعالجات
-    application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_subscription"))
-    application.add_handler(conv_handler)
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("logout", logout_command))
-    application.add_handler(CommandHandler("users", users_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("✅ Bot is running!")
-    print(f"📢 قناة الاشتراك الإجباري: {CHANNEL_ID}")
-    print(f"👑 معرف الأدمن: {ADMIN_ID}")
-    print("📱 ابحث عن البوت في تليجرام")
-    print("🛑 Press Ctrl+C to stop")
-    
-    # 🔥 الحل النهائي لمشكلة Conflict
-    try:
-        application.run_polling(
-            drop_pending_updates=True,  # يهمل أي تحديثات قديمة
-            allowed_updates=Update.ALL_TYPES,
-            stop_signals=None  # منع التداخل
-        )
-    except Exception as e:
-        print(f"❌ خطأ: {e}")
-        print("💡 تأكد من إيقاف النسخ الأخرى من البوت")
-
-if __name__ == "__main__":
-    main()
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND,
