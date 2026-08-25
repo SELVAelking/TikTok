@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from datetime import datetime
 import logging
+import os
 
 # ============================================
 # 1. إعدادات البوت
@@ -354,7 +355,7 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['email'] = email
         context.user_data['logged_in'] = True
         
-        # *** الحل الجديد: تخزين وقت آخر رسالة ***
+        # تخزين وقت آخر رسالة
         context.user_data['last_message_time'] = datetime.now().isoformat()
         context.user_data['last_bot_reply'] = None
         
@@ -464,7 +465,7 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 *إحصائيات المستخدمين*
 
 👥 *إجمالي المستخدمين:* {total_users}
-✅ *مستخدمين نشطين:* {active_users}
+✅ *مستخدمين نشطين (سجلوا دخول):* {active_users}
 ❌ *غير نشطين:* {total_users - active_users}
 
 📝 *آخر 20 مستخدم:*
@@ -497,7 +498,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔹 *للأدمن فقط:*
 /users - عرض عدد المستخدمين
 
-🔹 *للتواصل المباشر:* اطلب 333
+🔹 *للتواصل المباشر مع خدمة العملاء:* اطلب 333
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -546,7 +547,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if msg.get('sender', {}).get('name') == 'ChatBot':
                 content = msg.get('content', '')
                 if content and content != "XX_SESSION_RESTART_XX":
-                    # التحقق من وقت الرسالة (إذا كان موجود)
+                    # التحقق من وقت الرسالة
                     msg_time = msg.get('sendTime', '')
                     if msg_time:
                         try:
@@ -603,13 +604,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================
-# 7. تشغيل البوت
+# 7. تشغيل البوت - النسخة النهائية
 # ============================================
 def main():
     print("🚀 جاري تشغيل البوت...")
     
+    # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # معالج المحادثة
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -619,6 +622,7 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
+    # إضافة المعالجات
     application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_subscription"))
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("help", help_command))
@@ -633,7 +637,16 @@ def main():
     print("📱 ابحث عن البوت في تليجرام")
     print("🛑 Press Ctrl+C to stop")
     
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # 🔥 الحل النهائي لمشكلة Conflict
+    try:
+        application.run_polling(
+            drop_pending_updates=True,  # يهمل أي تحديثات قديمة
+            allowed_updates=Update.ALL_TYPES,
+            stop_signals=None  # منع التداخل
+        )
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+        print("💡 تأكد من إيقاف النسخ الأخرى من البوت")
 
 if __name__ == "__main__":
     main()
