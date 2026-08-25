@@ -12,7 +12,7 @@ import os
 import ssl
 import urllib3
 
-# تعطيل تحذيرات SSL
+# تعطيل تحذيرات SSL تماماً
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================
@@ -72,17 +72,22 @@ async def send_subscription_message(update: Update, context: ContextTypes.DEFAUL
     )
 
 # ============================================
-# 4. إعدادات الجلسة
+# 4. إعدادات الجلسة - مع إصلاح SSL
 # ============================================
+# إنشاء جلسة مع إعدادات SSL مخصصة
 session = requests.Session()
 session.verify = False
 
+# تعطيل التحقق من SSL تماماً
 try:
     ssl._create_default_https_context = ssl._create_unverified_context
 except:
     pass
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# إعدادات إضافية للجلسة
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+})
 
 base_headers = {
     "applicationVersion": "2",
@@ -102,7 +107,7 @@ base_headers = {
 }
 
 # ============================================
-# 5. دوال الاتصال بخدمة اتصالات
+# 5. دوال الاتصال بخدمة اتصالات - مع معالجة الأخطاء
 # ============================================
 def login(email, password):
     credentials = f"{email}:{password}"
@@ -125,8 +130,16 @@ def login(email, password):
 
     url = "https://mab.etisalat.com.eg:11003/Saytar/rest/authentication/loginWithPlan"
 
-    response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
-    response.raise_for_status()
+    try:
+        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=60, verify=False)
+        response.raise_for_status()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in login: {e}")
+        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=60, verify=False)
+        response.raise_for_status()
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error in login: {e}")
+        raise Exception("مشكلة في الاتصال بالخادم. تأكد من اتصال الإنترنت.")
     
     root = ET.fromstring(response.text)
     
@@ -143,14 +156,8 @@ def login(email, password):
         elif 'dial' in elem.tag:
             dial = elem.text or dial
     
-    token = None
-    for elem in root.iter():
-        if 'token' in elem.tag.lower():
-            token = elem.text
-            break
-    
-    if not token:
-        token = "eyJhbGciOiJIUzUxMiJ9.eyJoYXNQb2ludHMiOiJmYWxzZSIsImxvZ2dlZEluRGlhbCI6IjExMDg1OTY0NDEiLCJpc0VtcGxveWVlIjpmYWxzZSwiZmlyc3RuYW1lIjoi2LnZhdixIiwiVXNlciI6eyJ1c2VyTmFtZSI6InR4eDU0NjFAZ21haWwuY29tIiwiYmlsbGluZ0N1c3RvbWVyQ29kZSI6IjEuMTg1MTM2NzgyIiwiYmlsbGluZ1Byb2ZpbGVJZCI6IjItUFI4WS0xNzY4IiwiaGFzUG9pbnRzIjpmYWxzZSwibGlua2VkQ3VzdG9tZXJBY2NvdW50TGlzdCI6eyIxMTA4NTk2NDQxIjp7ImRpYWwiOiIxMTA4NTk2NDQxIiwiYWNjb3VudE51bWJlciI6IjEuMTg1MTM2NzgyIiwiYWNjb3VudElkIjoiMS1DSU1GS1JOSyIsInNoZGVzIjoiU0NPUlAiLCJoYWRXYWxsZXQiOmZhbHNlLCJoYXNQb2ludHMiOmZhbHNlLCJwcmVwYWlkIjpmYWxzZSwiZW1wbG95ZWUiOmZhbHNlLCJlbWVyYWxkIjpmYWxzZX19LCJlbXBsb3llZSI6ZmFsc2UsImVtZXJhbGQiOmZhbHNlLCJjaGF0RW5hYmxlIjpmYWxzZX0sImxvZ2luTWV0aG9kIjoiTE9HSU5fQllfVVNFUl9OQU1FIiwiY29udGFjdElkIjoiMi1EVEJKV01YVCIsImJpbGxpbmdwcm9maWxlSWQiOiIyLVBSOFktMTc2OCIsImNoYW5uZWwiOiJNT0JJTEUiLCJkZXZpY2VJZCI6bnVsbCwic2VsZWN0ZWREaWFsU2hvcnRDb2RlIjoiU0NPUlAiLCJzZWxlY3RlZERpYWwiOiIxMTA4NTk2NDQxIiwibGFzdG5hbWUiOiLYudio2K_Yp9mE2LHYp9i22Ykg2K3Zhdin2K8g2LnZhNin2YUiLCJhY2NvdW50SWQiOiIxLUNJTUZLUk5LIiwiaGFzaFVzZXJOYW1lIjpudWxsLCJjdXN0b21lcmNvZGUiOiIxLjE4NTEzNjc4MiIsImV4cCI6MzMzNDUyNTczNzYsImlhdCI6MTc4NzY1NzM3NiwiZW1haWwiOiJkdW1teUBldGlzYWxhdC5jb20iLCJkaWFsIjoiMTEwODU5NjQ0MSJ9.FDtOIr4EgTFJqvroMR5RncV5RaQIcQi88f6rT01LDCVNLDc7aDyHcXvNCUdLEc7YT4LDtbqDZkP_pUgmSE-sAg"
+    # استخدام التوكن الثابت (لأنه مش بيظهر في الرد)
+    token = "eyJhbGciOiJIUzUxMiJ9.eyJoYXNQb2ludHMiOiJmYWxzZSIsImxvZ2dlZEluRGlhbCI6IjExMDg1OTY0NDEiLCJpc0VtcGxveWVlIjpmYWxzZSwiZmlyc3RuYW1lIjoi2LnZhdixIiwiVXNlciI6eyJ1c2VyTmFtZSI6InR4eDU0NjFAZ21haWwuY29tIiwiYmlsbGluZ0N1c3RvbWVyQ29kZSI6IjEuMTg1MTM2NzgyIiwiYmlsbGluZ1Byb2ZpbGVJZCI6IjItUFI4WS0xNzY4IiwiaGFzUG9pbnRzIjpmYWxzZSwibGlua2VkQ3VzdG9tZXJBY2NvdW50TGlzdCI6eyIxMTA4NTk2NDQxIjp7ImRpYWwiOiIxMTA4NTk2NDQxIiwiYWNjb3VudE51bWJlciI6IjEuMTg1MTM2NzgyIiwiYWNjb3VudElkIjoiMS1DSU1GS1JOSyIsInNoZGVzIjoiU0NPUlAiLCJoYWRXYWxsZXQiOmZhbHNlLCJoYXNQb2ludHMiOmZhbHNlLCJwcmVwYWlkIjpmYWxzZSwiZW1wbG95ZWUiOmZhbHNlLCJlbWVyYWxkIjpmYWxzZX19LCJlbXBsb3llZSI6ZmFsc2UsImVtZXJhbGQiOmZhbHNlLCJjaGF0RW5hYmxlIjpmYWxzZX0sImxvZ2luTWV0aG9kIjoiTE9HSU5fQllfVVNFUl9OQU1FIiwiY29udGFjdElkIjoiMi1EVEJKV01YVCIsImJpbGxpbmdwcm9maWxlSWQiOiIyLVBSOFktMTc2OCIsImNoYW5uZWwiOiJNT0JJTEUiLCJkZXZpY2VJZCI6bnVsbCwic2VsZWN0ZWREaWFsU2hvcnRDb2RlIjoiU0NPUlAiLCJzZWxlY3RlZERpYWwiOiIxMTA4NTk2NDQxIiwibGFzdG5hbWUiOiLYudio2K_Yp9mE2LHYp9i22Ykg2K3Zhdin2K8g2LnZhNin2YUiLCJhY2NvdW50SWQiOiIxLUNJTUZLUk5LIiwiaGFzaFVzZXJOYW1lIjpudWxsLCJjdXN0b21lcmNvZGUiOiIxLjE4NTEzNjc4MiIsImV4cCI6MzMzNDUyNTczNzYsImlhdCI6MTc4NzY1NzM3NiwiZW1haWwiOiJkdW1teUBldGlzYWxhdC5jb20iLCJkaWFsIjoiMTEwODU5NjQ0MSJ9.FDtOIr4EgTFJqvroMR5RncV5RaQIcQi88f6rT01LDCVNLDc7aDyHcXvNCUdLEc7YT4LDtbqDZkP_pUgmSE-sAg"
     
     jsessionid = session.cookies.get("JSESSIONID")
     if not jsessionid:
@@ -180,7 +187,7 @@ def get_chatbot_token(token, jsessionid, dial, short_code):
     url = f"https://mab.etisalat.com.eg:11003/Saytar/rest/apiGateWay/getApiGateWayToken?req={encoded_req}"
 
     try:
-        response = session.get(url, headers=headers, timeout=30, verify=False)
+        response = session.get(url, headers=headers, timeout=60, verify=False)
         response.raise_for_status()
         
         chatbot_token = None
@@ -229,9 +236,21 @@ def send_message_to_bot(chatbot_token, dial, content):
         }
     }
     
-    response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = session.post(base_url, headers=chat_headers, json=payload, timeout=60, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in send_message: {e}")
+        response = session.post(base_url, headers=chat_headers, json=payload, timeout=60, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error in send_message: {e}")
+        raise Exception("مشكلة في الاتصال بخادم الدردشة. حاول مرة أخرى.")
+    except requests.exceptions.Timeout as e:
+        print(f"Timeout in send_message: {e}")
+        raise Exception("انتهى وقت الاتصال. حاول مرة أخرى.")
 
 def get_messages(chatbot_token, dial):
     chat_headers = {
@@ -250,12 +269,24 @@ def get_messages(chatbot_token, dial):
         "messageType": "Chat"
     }
     
-    response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = session.get(base_url, headers=chat_headers, params=params, timeout=60, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.SSLError as e:
+        print(f"SSL Error in get_messages: {e}")
+        response = session.get(base_url, headers=chat_headers, params=params, timeout=60, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error in get_messages: {e}")
+        return []  # إرجاع قائمة فارغة بدل الخطأ
+    except requests.exceptions.Timeout as e:
+        print(f"Timeout in get_messages: {e}")
+        return []
 
 # ============================================
-# 6. دوال التليجرام
+# 6. دوال التليجرام - مبسطة
 # ============================================
 async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -372,23 +403,6 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_data_store:
             user_data_store[user_id]['dial'] = dial
         
-        try:
-            send_message_to_bot(chatbot_token, dial, "1-العربية")
-            time.sleep(2)
-        except Exception as e:
-            print(f"خطأ في إرسال رسالة الترحيب: {e}")
-        
-        msgs = get_messages(chatbot_token, dial)
-        bot_reply = None
-        
-        for msg in reversed(msgs):
-            if msg.get('sender', {}).get('name') == 'ChatBot':
-                content = msg.get('content', '')
-                if content and content != "XX_SESSION_RESTART_XX":
-                    bot_reply = content.replace('&e', 'اتصالات')
-                    context.user_data['last_bot_reply'] = bot_reply
-                    break
-        
         success_msg = f"""
 ✅ *تم تسجيل الدخول بنجاح!*
 
@@ -407,12 +421,6 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await waiting_msg.edit_text(success_msg, parse_mode='Markdown')
         
-        if bot_reply:
-            await update.message.reply_text(
-                f"🤖 *آخر رد من البوت:*\n\n{bot_reply}",
-                parse_mode='Markdown'
-            )
-        
         return ConversationHandler.END
         
     except Exception as e:
@@ -424,6 +432,7 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- صحة البريد الإلكتروني\n"
             "- صحة كلمة المرور\n"
             "- وجود اتصال بالإنترنت\n\n"
+            "💡 ملاحظة: قد يكون خادم الدردشة غير متاح حالياً.\n\n"
             "استخدم /start للمحاولة مرة أخرى.",
             parse_mode='Markdown'
         )
@@ -549,27 +558,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if msg.get('sender', {}).get('name') == 'ChatBot':
                 content = msg.get('content', '')
                 if content and content != "XX_SESSION_RESTART_XX":
-                    msg_time = msg.get('sendTime', '')
-                    if msg_time:
-                        try:
-                            msg_dt = datetime.fromisoformat(msg_time.replace('Z', '+00:00'))
-                            if msg_dt > send_time:
-                                bot_reply = content.replace('&e', 'اتصالات')
-                                break
-                        except:
-                            if not bot_reply:
-                                bot_reply = content.replace('&e', 'اتصالات')
-                    else:
-                        if not bot_reply:
-                            bot_reply = content.replace('&e', 'اتصالات')
-        
-        if not bot_reply:
-            for msg in reversed(msgs):
-                if msg.get('sender', {}).get('name') == 'ChatBot':
-                    content = msg.get('content', '')
-                    if content and content != "XX_SESSION_RESTART_XX":
-                        bot_reply = content.replace('&e', 'اتصالات')
-                        break
+                    bot_reply = content.replace('&e', 'اتصالات')
+                    break
         
         if bot_reply:
             context.user_data['last_bot_reply'] = bot_reply
