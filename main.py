@@ -72,23 +72,16 @@ async def send_subscription_message(update: Update, context: ContextTypes.DEFAUL
     )
 
 # ============================================
-# 4. إعدادات الجلسة - مع إصلاح SSL
+# 4. إعدادات الجلسة
 # ============================================
-# إنشاء جلسة مع إعدادات SSL مخصصة
 session = requests.Session()
-
-# تعطيل التحقق من SSL تماماً
 session.verify = False
 
-# إعدادات SSL إضافية
 try:
-    import ssl
     ssl._create_default_https_context = ssl._create_unverified_context
 except:
     pass
 
-# تجاهل تحذيرات SSL
-import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 base_headers = {
@@ -109,7 +102,7 @@ base_headers = {
 }
 
 # ============================================
-# 5. دوال الاتصال بخدمة اتصالات - مع إصلاح SSL
+# 5. دوال الاتصال بخدمة اتصالات
 # ============================================
 def login(email, password):
     credentials = f"{email}:{password}"
@@ -132,14 +125,8 @@ def login(email, password):
 
     url = "https://mab.etisalat.com.eg:11003/Saytar/rest/authentication/loginWithPlan"
 
-    try:
-        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
-        response.raise_for_status()
-    except requests.exceptions.SSLError as e:
-        print(f"SSL Error in login: {e}")
-        # محاولة بدون التحقق من SSL
-        response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
-        response.raise_for_status()
+    response = session.post(url, headers=login_headers, data=login_xml.encode('utf-8'), timeout=30, verify=False)
+    response.raise_for_status()
     
     root = ET.fromstring(response.text)
     
@@ -242,16 +229,9 @@ def send_message_to_bot(chatbot_token, dial, content):
         }
     }
     
-    try:
-        response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.SSLError as e:
-        print(f"SSL Error in send_message: {e}")
-        # محاولة بدون التحقق
-        response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
-        response.raise_for_status()
-        return response.json()
+    response = session.post(base_url, headers=chat_headers, json=payload, timeout=30, verify=False)
+    response.raise_for_status()
+    return response.json()
 
 def get_messages(chatbot_token, dial):
     chat_headers = {
@@ -270,15 +250,9 @@ def get_messages(chatbot_token, dial):
         "messageType": "Chat"
     }
     
-    try:
-        response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.SSLError as e:
-        print(f"SSL Error in get_messages: {e}")
-        response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
-        response.raise_for_status()
-        return response.json()
+    response = session.get(base_url, headers=chat_headers, params=params, timeout=30, verify=False)
+    response.raise_for_status()
+    return response.json()
 
 # ============================================
 # 6. دوال التليجرام
@@ -312,7 +286,6 @@ async def check_subscription_callback(update: Update, context: ContextTypes.DEFA
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # تسجيل المستخدم
     if user_id not in user_data_store:
         user_data_store[user_id] = {
             'email': '',
@@ -322,7 +295,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'join_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     
-    # التحقق من الاشتراك
     if not await check_subscription(user_id, context):
         await send_subscription_message(update, context)
         return
@@ -400,15 +372,12 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_data_store:
             user_data_store[user_id]['dial'] = dial
         
-        # إرسال اختيار اللغة
         try:
             send_message_to_bot(chatbot_token, dial, "1-العربية")
             time.sleep(2)
         except Exception as e:
             print(f"خطأ في إرسال رسالة الترحيب: {e}")
-            # نستمر حتى لو فشل إرسال رسالة الترحيب
         
-        # جلب الردود الأولية
         msgs = get_messages(chatbot_token, dial)
         bot_reply = None
         
@@ -446,19 +415,6 @@ async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return ConversationHandler.END
         
-    except requests.exceptions.SSLError as e:
-        error_msg = "مشكلة في الاتصال بالخادم (SSL). يرجى المحاولة مرة أخرى."
-        await waiting_msg.edit_text(
-            f"❌ *فشل تسجيل الدخول!*\n\n"
-            f"السبب: `{error_msg}`\n\n"
-            "💡 تأكد من:\n"
-            "- صحة البريد الإلكتروني\n"
-            "- صحة كلمة المرور\n"
-            "- وجود اتصال بالإنترنت\n\n"
-            "استخدم /start للمحاولة مرة أخرى.",
-            parse_mode='Markdown'
-        )
-        return ConversationHandler.END
     except Exception as e:
         error_msg = str(e)
         await waiting_msg.edit_text(
@@ -654,4 +610,34 @@ def main():
         entry_points=[CommandHandler('start', start)],
         states={
             EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_email)],
-            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND,
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_password)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    
+    application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="check_subscription"))
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("logout", logout_command))
+    application.add_handler(CommandHandler("users", users_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("✅ Bot is running!")
+    print(f"📢 قناة الاشتراك الإجباري: {CHANNEL_ID}")
+    print(f"👑 معرف الأدمن: {ADMIN_ID}")
+    print("📱 ابحث عن البوت في تليجرام")
+    print("🛑 Press Ctrl+C to stop")
+    
+    try:
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            stop_signals=None
+        )
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+        print("💡 تأكد من إيقاف النسخ الأخرى من البوت")
+
+if __name__ == "__main__":
+    main()
